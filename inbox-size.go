@@ -57,45 +57,18 @@ func load_options_from_flags() (*Options, error) {
 	return &opts, nil
 }
 
-func run_until_error(opts *Options) error {
-	conn, err := tls.Dial("tcp", opts.Server, nil)
-	if err != nil {
-		panic(err)
-	}
+func send_command(conn *tls.Conn, scanner *bufio.Scanner, opts *Options, tag, command string) error {
 	conn.SetDeadline(time.Now().Add(opts.Timeout))
-	scanner := bufio.NewScanner(conn)
-	conn.Write([]byte("login LOGIN " + opts.Credentials + "\r\n"))
+	conn.Write([]byte(tag + " " + command + "\r\n"))
 	if opts.Verbose {
-		fmt.Fprintln(os.Stderr, ">>> login LOGIN <credentials>")
+		fmt.Fprintln(os.Stderr, ">>> "+tag+" "+command)
 	}
 	for {
 		if !scanner.Scan() {
 			if scanner.Err() == nil {
 				return errors.New("Unexpected EOF while reading from server")
 			}
-			return errors.New("While reading from server: " + scanner.Err().Error())
-		}
-		if opts.Verbose {
-			fmt.Fprintln(os.Stderr, "<<< ", scanner.Text())
-		}
-		if strings.HasPrefix(scanner.Text(), "login ") {
-			if strings.HasPrefix(scanner.Text(), "login OK ") {
-				break
-			}
-			return errors.New("Login error: " + scanner.Text())
-		}
-	}
-	conn.SetDeadline(time.Now().Add(opts.Timeout))
-	conn.Write([]byte("examine EXAMINE " + opts.Mailbox + "\r\n"))
-	if opts.Verbose {
-		fmt.Fprintln(os.Stderr, ">>> examine EXAMINE "+opts.Mailbox)
-	}
-	for {
-		if !scanner.Scan() {
-			if scanner.Err() == nil {
-				return errors.New("Unexpected EOF while reading from server")
-			}
-			return errors.New("While reading from server: " + scanner.Err().Error())
+			return errors.New("Error while reading from server: " + scanner.Err().Error())
 		}
 		if opts.Verbose {
 			fmt.Fprintln(os.Stderr, "<<< ", scanner.Text())
@@ -103,42 +76,38 @@ func run_until_error(opts *Options) error {
 		if strings.HasSuffix(scanner.Text(), "EXISTS") {
 			fmt.Println(time.Now(), strings.Split(scanner.Text(), " ")[1])
 		}
-		if strings.HasPrefix(scanner.Text(), "examine ") {
-			if strings.HasPrefix(scanner.Text(), "examine OK ") {
+		if strings.HasPrefix(scanner.Text(), tag+" ") {
+			if strings.HasPrefix(scanner.Text(), tag+" OK ") {
 				break
 			}
-			return errors.New("Error opening mailbox " + opts.Mailbox + ": " + scanner.Text())
+			return errors.New("Server returned error: " + scanner.Text())
 		}
 	}
+	return nil
+}
+
+func run_until_error(opts *Options) error {
+	conn, err := tls.Dial("tcp", opts.Server, nil)
+	if err != nil {
+		return err
+	}
+	scanner := bufio.NewScanner(conn)
+
+	if err = send_command(conn, scanner, opts, "login", "LOGIN "+opts.Credentials); err != nil {
+		return err
+	}
+
+	if err = send_command(conn, scanner, opts, "examine", "EXAMINE "+opts.Mailbox); err != nil {
+		return err
+	}
+
 	seq := 0
 	for {
 		time.Sleep(opts.Interval)
 		seq++
 		tag := fmt.Sprintf("a%d", seq)
-		conn.SetDeadline(time.Now().Add(opts.Timeout))
-		conn.Write([]byte(tag + " NOOP\r\n"))
-		if opts.Verbose {
-			fmt.Fprintln(os.Stderr, ">>> "+tag+" NOOP")
-		}
-		for {
-			if !scanner.Scan() {
-				if scanner.Err() == nil {
-					return errors.New("Unexpected EOF while reading from server")
-				}
-				return errors.New("While reading from server: " + scanner.Err().Error())
-			}
-			if opts.Verbose {
-				fmt.Fprintln(os.Stderr, "<<< ", scanner.Text())
-			}
-			if strings.HasSuffix(scanner.Text(), "EXISTS") {
-				fmt.Println(time.Now(), strings.Split(scanner.Text(), " ")[1])
-			}
-			if strings.HasPrefix(scanner.Text(), tag+" ") {
-				if strings.HasPrefix(scanner.Text(), tag+" OK") {
-					break
-				}
-				return errors.New("Error from server: " + scanner.Text())
-			}
+		if err = send_command(conn, scanner, opts, tag, "NOOP"); err != nil {
+			return err
 		}
 	}
 }
