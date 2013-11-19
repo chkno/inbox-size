@@ -116,7 +116,7 @@ func run_continuously(opts *Options) {
 	for {
 		// TODO: Randomized exponential backoff
 		err := run_until_error(opts)
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
 	}
 }
 
@@ -124,7 +124,7 @@ func main() {
 	flag.Parse()
 	opts, err := load_options_from_flags()
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
 		return
 	}
 	run_continuously(opts)
