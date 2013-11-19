@@ -75,6 +75,7 @@ func send_command(conn *tls.Conn, scanner *bufio.Scanner, opts *Options, tag, co
 		}
 		if strings.HasSuffix(scanner.Text(), "EXISTS") {
 			fmt.Println(time.Now(), strings.Split(scanner.Text(), " ")[1])
+			os.Stdout.Sync()
 		}
 		if strings.HasPrefix(scanner.Text(), tag+" ") {
 			if strings.HasPrefix(scanner.Text(), tag+" OK ") {
