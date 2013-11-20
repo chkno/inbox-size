@@ -2,11 +2,14 @@ package main
 
 import (
 	"bufio"
+	"container/list"
 	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"math"
+	"math/rand"
 	"os"
 	"strings"
 	"time"
@@ -114,8 +117,30 @@ func run_until_error(opts *Options) error {
 }
 
 func run_continuously(opts *Options) {
+	const (
+		window_size = 1 * time.Hour
+		max_delay   = 5 * time.Minute
+	)
+	attempt_times := list.New()
 	for {
-		// TODO: Randomized exponential backoff
+		now := time.Now()
+		attempt_times.PushBack(now)
+		discard_point := now.Add(-window_size)
+		for attempt_times.Front().Value.(time.Time).Before(discard_point) {
+			attempt_times.Remove(attempt_times.Front())
+		}
+		if attempt_times.Len() > 1 {
+			delay := time.Duration(
+				float64(200 * time.Millisecond) *
+					math.Pow(2, float64(attempt_times.Len())) *
+					rand.Float64())
+			if delay > max_delay {
+				delay = max_delay
+			}
+			fmt.Fprint(os.Stderr, "Waiting ", delay, " before retry...")
+			time.Sleep(delay)
+			fmt.Fprintln(os.Stderr)
+		}
 		err := run_until_error(opts)
 		fmt.Fprintln(os.Stderr, err)
 	}
@@ -123,6 +148,7 @@ func run_continuously(opts *Options) {
 
 func main() {
 	flag.Parse()
+	rand.Seed(time.Now().UnixNano())
 	opts, err := load_options_from_flags()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
