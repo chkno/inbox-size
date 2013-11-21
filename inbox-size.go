@@ -22,13 +22,17 @@ var flag_interval = flag.String("interval", "1m", "Wait this long between polls"
 var flag_timeout = flag.String("timeout", "5m", "Reconnect if a poll takes longer than this")
 var flag_verbose = flag.Bool("verbose", false, "Show the IMAP chatter")
 
-// TODO: Quote username, password, and mailbox name
-// Currently, things break if they contain special characters
-
 type Options struct {
-	Server, Credentials, Mailbox string
-	Interval, Timeout            time.Duration
-	Verbose                      bool
+	Server, Username, Password, Mailbox string
+	Interval, Timeout                   time.Duration
+	Verbose                             bool
+}
+
+func imap_quote(x string) string {
+	x = strings.Replace(x, "\\", "\\\\", -1)
+	x = strings.Replace(x, "\"", "\\\"", -1)
+	x = strings.Replace(x, "/", "\\/", -1)
+	return "\"" + x + "\""
 }
 
 func load_options_from_flags() (*Options, error) {
@@ -43,7 +47,9 @@ func load_options_from_flags() (*Options, error) {
 		return nil, errors.New("Couldn't read credential file " +
 			*flag_credentialsfile + ": " + err.Error())
 	}
-	opts.Credentials = strings.TrimSpace(string(credentialbytes))
+	credentials := strings.SplitN(strings.TrimSpace(string(credentialbytes)), " ", 2)
+	opts.Username = credentials[0]
+	opts.Password = credentials[1]
 
 	opts.Interval, err = time.ParseDuration(*flag_interval)
 	if err != nil {
@@ -97,11 +103,11 @@ func run_until_error(opts *Options) error {
 	}
 	scanner := bufio.NewScanner(conn)
 
-	if err = send_command(conn, scanner, opts, "login", "LOGIN "+opts.Credentials); err != nil {
+	if err = send_command(conn, scanner, opts, "login", "LOGIN "+imap_quote(opts.Username)+" "+imap_quote(opts.Password)); err != nil {
 		return err
 	}
 
-	if err = send_command(conn, scanner, opts, "examine", "EXAMINE "+opts.Mailbox); err != nil {
+	if err = send_command(conn, scanner, opts, "examine", "EXAMINE "+imap_quote(opts.Mailbox)); err != nil {
 		return err
 	}
 
